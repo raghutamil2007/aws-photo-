@@ -4,44 +4,37 @@ Share a QR code at your event. Guests scan it with their phone (mobile data or W
 
 ---
 
-## 🚀 Free Cloud Hosting Stack (100% Free Forever)
-
-Render's free tier has an **ephemeral disk** (local files are wiped when the app restarts/sleeps). To keep everything **100% free forever** and permanent:
+## 🚀 Free Hosting Stack
 
 | Component | Service | Free Tier Allowance |
 |---|---|---|
 | **App Hosting** | **[Render.com](https://render.com)** | Free Web Service (Node.js) |
-| **Photo Storage & CDN** | **[Cloudinary.com](https://cloudinary.com)** | 25 GB free storage & bandwidth/month |
-| **Database** | **[MongoDB Atlas](https://www.mongodb.com/cloud/atlas)** | 512 MB free M0 cluster forever |
+| **Photo Storage** | **[Firebase Storage](https://firebase.google.com)** | 5 GB free storage & fast Google CDN |
+| **Database** | **[Firebase Firestore](https://firebase.google.com)** | 1 GB permanent free database |
+| **Code & Deploy** | **[GitHub](https://github.com)** | Free public/private repo & auto-deploy |
 
 ---
 
-## 🛠️ Step-by-Step Deployment Guide
+## 🛠️ Step-by-Step Setup Guide
 
-### Step 1: Get Free Cloudinary Account (1 minute)
-1. Sign up free at [cloudinary.com](https://cloudinary.com).
-2. Go to your **Dashboard**.
-3. Copy these 3 values:
-   - **Cloud Name**
-   - **API Key**
-   - **API Secret**
-
----
-
-### Step 2: Get Free MongoDB Atlas Database (2 minutes)
-1. Sign up free at [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas).
-2. Create a **Shared (M0 Free)** cluster (free forever, no credit card needed).
-3. Under **Database Access**, create a user with username and password.
-4. Under **Network Access**, click **Add IP Address** → Choose **Allow Access from Anywhere (`0.0.0.0/0`)**.
-5. Click **Connect** → **Drivers** → Copy your connection string:
-   ```
-   mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
-   ```
-   *(Replace `<username>` and `<password>` with your database user credentials).*
+### Step 1: Create a Free Firebase Project (2 minutes)
+1. Go to **[console.firebase.google.com](https://console.firebase.google.com)** and click **Add Project**.
+2. Name your project (e.g. `event-photos-app`) and click through to create it.
+3. In the left sidebar:
+   - Click **Build** → **Firestore Database** → Click **Create Database** (choose **Start in production mode** or **test mode**).
+   - Click **Build** → **Storage** → Click **Get Started** (accept default settings).
 
 ---
 
-### Step 3: Push Code to GitHub
+### Step 2: Download Firebase Service Account Key (1 minute)
+1. In the Firebase console, click the **⚙️ Gear icon** (top left next to Project Overview) → **Project settings**.
+2. Click the **Service accounts** tab.
+3. Click **Generate new private key** → **Generate key**.
+4. A `.json` file will download to your computer.
+
+---
+
+### Step 3: Push Your Code to GitHub
 Open your terminal in `d:\aws\event-photos`:
 ```bash
 git remote add origin https://github.com/YOUR_USERNAME/event-photos.git
@@ -52,45 +45,39 @@ git push -u origin main
 ---
 
 ### Step 4: Deploy on Render (Free)
-1. Go to [dashboard.render.com](https://dashboard.render.com) and click **New +** → **Web Service**.
+1. Go to **[dashboard.render.com](https://dashboard.render.com)** and click **New +** → **Web Service**.
 2. Connect your GitHub repository `event-photos`.
 3. Configure the settings:
-   - **Name**: `event-photos` (or your choice)
-   - **Region**: Closest to you (e.g., Singapore, Frankfurt, Oregon)
-   - **Branch**: `main`
+   - **Name**: `event-photos`
    - **Runtime**: `Node`
    - **Build Command**: `npm install`
    - **Start Command**: `node server.js`
    - **Instance Type**: `Free`
-4. Scroll down to **Environment Variables** and add:
+4. Under **Environment Variables**, add:
    | Key | Value |
    |---|---|
    | `NODE_VERSION` | `18.18.0` |
-   | `CLOUDINARY_CLOUD_NAME` | *(from Step 1)* |
-   | `CLOUDINARY_API_KEY` | *(from Step 1)* |
-   | `CLOUDINARY_API_SECRET` | *(from Step 1)* |
-   | `MONGODB_URI` | *(from Step 2)* |
+   | `FIREBASE_SERVICE_ACCOUNT` | *Open the downloaded `.json` file, copy all text inside, and paste it here!* |
 5. Click **Create Web Service**.
 
-Render will build and deploy your app. Within 2 minutes, you will get a live URL:
+Within 2 minutes, Render will build and deploy your app. You will get a live URL:
 👉 `https://event-photos.onrender.com`
 
 ---
 
-## 📱 How Guests Use It Anywhere
-1. Open your Render URL (`https://event-photos.onrender.com`).
-2. Create an event → QR code is generated instantly.
-3. The QR code links to `https://event-photos.onrender.com/upload/<eventId>`.
-4. Guests can scan with any phone on **cellular data (4G/5G) or Wi-Fi**.
-5. Photos are uploaded straight to Cloudinary's fast global CDN and saved in MongoDB Atlas.
+## 📱 How It Works for Guests
+1. Open your live Render link (`https://event-photos.onrender.com`).
+2. Create an event → QR code is generated instantly with your live HTTPS domain.
+3. Guests scan the QR code from their phone (using mobile data 4G/5G or any Wi-Fi).
+4. Photos upload directly to Google Cloud / Firebase Storage and are stored permanently.
+5. Anyone can view the gallery, download photos, and view them in the lightbox.
 
 ---
 
 ## 💻 Local Testing
-To run locally on your PC without cloud services:
+To test locally:
 ```bash
 npm install
 npm start
 ```
-- App runs at `http://localhost:3000`
-- Automatically falls back to local disk (`./uploads`) and local JSON (`./data/events.json`) when Cloudinary/MongoDB keys are not provided.
+- If Firebase credentials are not set, it automatically saves photos in `./uploads` on your laptop.

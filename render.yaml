@@ -8,15 +8,11 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 18.18.0
-      # Cloudinary credentials (free 25GB photo storage)
-      # Get these from https://cloudinary.com/console
-      - key: CLOUDINARY_CLOUD_NAME
+      # Option 1: Paste full Firebase Service Account JSON string
+      - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
-      - key: CLOUDINARY_API_KEY
-        sync: false
-      - key: CLOUDINARY_API_SECRET
-        sync: false
-      # MongoDB Atlas connection string (free 512MB database)
-      # Get this from https://cloud.mongodb.com
-      - key: MONGODB_URI
-        sync: false
+      # Option 2 (or use individual keys):
+      # - key: FIREBASE_PROJECT_ID
+      # - key: FIREBASE_CLIENT_EMAIL
+      # - key: FIREBASE_PRIVATE_KEY
+      # - key: FIREBASE_STORAGE_BUCKET

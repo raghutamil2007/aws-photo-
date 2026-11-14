@@ -3,11 +3,9 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { Readable } = require('stream');
 const { v4: uuidv4 } = require('uuid');
 const QRCode = require('qrcode');
-const cloudinary = require('cloudinary').v2;
-const { MongoClient } = require('mongodb');
+const admin = require('firebase-admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -43,16 +41,16 @@ function getLocalIP() {
 
 // ─── Base URL Helper (Render HTTPS vs Local IP) ──────────────────────────────
 function getBaseUrl(req) {
-  // If explicitly configured in environment (e.g. Render dashboard)
+  // If explicitly configured in environment (Render dashboard)
   if (process.env.BASE_URL) {
     return process.env.BASE_URL.replace(/\/$/, '');
   }
-  // Auto-detect Render or reverse proxy headers (e.g. https://my-app.onrender.com)
+  // Auto-detect Render reverse proxy headers (e.g. https://my-app.onrender.com)
   if (req && req.headers['x-forwarded-host']) {
     const proto = req.headers['x-forwarded-proto'] || 'https';
     return `${proto}://${req.headers['x-forwarded-host']}`;
   }
-  // If request has a host header that isn't localhost/127.0.0.1
+  // If request has host header that is not localhost
   if (req && req.get('host')) {
     const host = req.get('host');
     if (!host.includes('localhost') && !host.includes('127.0.0.1')) {
@@ -60,53 +58,85 @@ function getBaseUrl(req) {
       return `${proto}://${host}`;
     }
   }
-  // Local network IP so phone on Wi-Fi works during local dev
+  // Local network IP for Wi-Fi testing
   const localIP = process.env.LOCAL_IP || getLocalIP();
   return `http://${localIP}:${PORT}`;
 }
 
-// ─── Cloudinary Setup (Free Cloud Photo Storage) ─────────────────────────────
-const hasCloudinary = Boolean(
-  process.env.CLOUDINARY_URL ||
-  (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET)
-);
+// ─── Firebase Setup (Storage + Firestore) ────────────────────────────────────
+let firebaseBucket = null;
+let firestoreDb = null;
+let hasFirebase = false;
 
-if (hasCloudinary) {
-  if (!process.env.CLOUDINARY_URL) {
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-      secure: true
-    });
-  }
-  console.log('☁️  Cloudinary enabled: photos will be hosted free on Cloudinary CDN');
-} else {
-  console.log('📁 Local disk mode: photos stored in ./uploads (add Cloudinary for Render hosting)');
-}
+function initFirebase() {
+  try {
+    let serviceAccount = null;
 
-function uploadBufferToCloudinary(buffer, folder) {
-  return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        folder,
-        resource_type: 'image',
-        transformation: [{ quality: 'auto', fetch_format: 'auto' }]
-      },
-      (error, result) => {
-        if (error) return reject(error);
-        resolve(result);
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+      serviceAccount = {
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+      };
+    } else {
+      const keyPath = path.join(__dirname, 'firebase-service-account.json');
+      if (fs.existsSync(keyPath)) {
+        serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
       }
-    );
-    Readable.from(buffer).pipe(uploadStream);
-  });
+    }
+
+    if (serviceAccount) {
+      const projectId = serviceAccount.project_id || serviceAccount.projectId;
+      const bucketName = process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`;
+
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        storageBucket: bucketName
+      });
+
+      firestoreDb = admin.firestore();
+      firebaseBucket = admin.storage().bucket();
+      hasFirebase = true;
+      console.log(`🔥 Firebase enabled: Firestore DB + Cloud Storage (${bucketName})`);
+    } else {
+      console.log('📁 Local mode: photos saved to ./uploads (add Firebase credentials for Render)');
+    }
+  } catch (err) {
+    console.error('⚠️ Firebase init error, falling back to local files:', err.message);
+  }
 }
 
-// ─── Local Disk Fallback Setup ───────────────────────────────────────────────
+initFirebase();
+
+async function uploadToFirebase(buffer, originalname, eventId, mimetype) {
+  const ext = path.extname(originalname).toLowerCase();
+  const filename = `${Date.now()}-${uuidv4().slice(0, 8)}${ext}`;
+  const filePath = `events/${eventId}/${filename}`;
+  const file = firebaseBucket.file(filePath);
+  const downloadToken = uuidv4();
+
+  await file.save(buffer, {
+    metadata: {
+      contentType: mimetype || 'image/jpeg',
+      metadata: {
+        firebaseStorageDownloadTokens: downloadToken
+      }
+    }
+  });
+
+  const encodedPath = encodeURIComponent(filePath);
+  const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${firebaseBucket.name}/o/${encodedPath}?alt=media&token=${downloadToken}`;
+
+  return { filename, filePath, publicUrl };
+}
+
+// ─── Local Fallback Setup ───────────────────────────────────────────────────
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const EVENTS_FILE = path.join(__dirname, 'data', 'events.json');
 
-[UPLOADS_DIR, path.join(__dirname, 'data'), path.join(__dirname, 'public', 'qrcodes')].forEach(dir => {
+[UPLOADS_DIR, path.join(__dirname, 'data')].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
@@ -120,64 +150,63 @@ function saveLocalEvents(events) {
   fs.writeFileSync(EVENTS_FILE, JSON.stringify(events, null, 2));
 }
 
-// ─── Database Layer (MongoDB Atlas or Local JSON) ────────────────────────────
-let dbClient = null;
-let eventsCollection = null;
-
-async function initDB() {
-  if (process.env.MONGODB_URI) {
-    try {
-      dbClient = new MongoClient(process.env.MONGODB_URI);
-      await dbClient.connect();
-      const db = dbClient.db(process.env.MONGODB_DB_NAME || 'event_photos');
-      eventsCollection = db.collection('events');
-      console.log('🍃 MongoDB Atlas connected: event records persist across Render restarts');
-    } catch (err) {
-      console.error('⚠️  MongoDB connection failed, falling back to local file:', err.message);
-    }
-  } else {
-    console.log('📄 Using local JSON database (add MONGODB_URI to persist across Render restarts)');
-  }
-}
-
+// ─── Event Storage Operations ────────────────────────────────────────────────
 async function getAllEvents() {
-  if (eventsCollection) {
-    return await eventsCollection.find({}).sort({ createdAt: -1 }).toArray();
+  if (hasFirebase && firestoreDb) {
+    try {
+      const snapshot = await firestoreDb.collection('events').orderBy('createdAt', 'desc').get();
+      return snapshot.docs.map(doc => doc.data());
+    } catch (e) {
+      console.error('Firestore getAllEvents error, using local fallback:', e.message);
+    }
   }
   const events = loadLocalEvents();
   return Object.values(events).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 async function getEventById(eventId) {
-  if (eventsCollection) {
-    return await eventsCollection.findOne({ id: eventId });
+  if (hasFirebase && firestoreDb) {
+    try {
+      const doc = await firestoreDb.collection('events').doc(eventId).get();
+      return doc.exists ? doc.data() : null;
+    } catch (e) {
+      console.error('Firestore getEventById error, using local fallback:', e.message);
+    }
   }
   const events = loadLocalEvents();
   return events[eventId] || null;
 }
 
 async function saveEvent(event) {
-  if (eventsCollection) {
-    await eventsCollection.updateOne({ id: event.id }, { $set: event }, { upsert: true });
-    return;
+  if (hasFirebase && firestoreDb) {
+    try {
+      await firestoreDb.collection('events').doc(event.id).set(event, { merge: true });
+      return;
+    } catch (e) {
+      console.error('Firestore saveEvent error, using local fallback:', e.message);
+    }
   }
   const events = loadLocalEvents();
   events[event.id] = event;
   saveLocalEvents(events);
 }
 
-async function deleteEvent(eventId) {
-  if (eventsCollection) {
-    await eventsCollection.deleteOne({ id: eventId });
-    return;
+async function deleteEventDoc(eventId) {
+  if (hasFirebase && firestoreDb) {
+    try {
+      await firestoreDb.collection('events').doc(eventId).delete();
+      return;
+    } catch (e) {
+      console.error('Firestore deleteEvent error, using local fallback:', e.message);
+    }
   }
   const events = loadLocalEvents();
   delete events[eventId];
   saveLocalEvents(events);
 }
 
-// ─── Multer Configuration ───────────────────────────────────────────────────
-const storage = hasCloudinary
+// ─── Multer Config ───────────────────────────────────────────────────────────
+const storage = hasFirebase
   ? multer.memoryStorage()
   : multer.diskStorage({
       destination: (req, file, cb) => {
@@ -194,7 +223,7 @@ const storage = hasCloudinary
 
 const upload = multer({
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max per image
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
   fileFilter: (req, file, cb) => {
     const allowed = /jpeg|jpg|png|gif|webp|heic|heif/;
     const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
@@ -213,7 +242,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// ─── API: Dynamic QR Code Generation (Zero-disk, ephemeral-safe) ─────────────
+// ─── API: Dynamic QR Code Generation (Zero-disk on Render) ───────────────────
 app.get('/api/events/:eventId/qr', async (req, res) => {
   try {
     const event = await getEventById(req.params.eventId);
@@ -229,10 +258,10 @@ app.get('/api/events/:eventId/qr', async (req, res) => {
     });
 
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24h
+    res.setHeader('Cache-Control', 'public, max-age=86400');
     res.send(qrBuffer);
   } catch (err) {
-    console.error('Error serving QR:', err);
+    console.error('Error generating QR:', err);
     res.status(500).send('Error generating QR code');
   }
 });
@@ -311,17 +340,23 @@ app.post('/api/events/:eventId/upload', upload.array('photos', 20), async (req, 
     const uploaderName = (req.body.uploaderName || 'Guest').trim();
     const uploaded = [];
 
-    if (hasCloudinary) {
-      // Cloudinary cloud upload
+    if (hasFirebase && firebaseBucket) {
+      // Upload to Firebase Storage
       for (const file of req.files) {
-        const result = await uploadBufferToCloudinary(file.buffer, `event-photos/${event.id}`);
+        const { filename, filePath, publicUrl } = await uploadToFirebase(
+          file.buffer,
+          file.originalname,
+          event.id,
+          file.mimetype
+        );
+
         const photo = {
           id: uuidv4().slice(0, 8),
-          publicId: result.public_id,
-          filename: file.originalname,
+          filePath,
+          filename,
           originalName: file.originalname,
-          size: result.bytes || file.size,
-          url: result.secure_url,
+          size: file.size,
+          url: publicUrl,
           uploadedAt: new Date().toISOString(),
           uploaderName
         };
@@ -329,7 +364,7 @@ app.post('/api/events/:eventId/upload', upload.array('photos', 20), async (req, 
         uploaded.push(photo);
       }
     } else {
-      // Local disk fallback
+      // Local disk upload
       for (const file of req.files) {
         const photo = {
           id: uuidv4().slice(0, 8),
@@ -369,12 +404,12 @@ app.delete('/api/events/:eventId', async (req, res, next) => {
     const event = await getEventById(req.params.eventId);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    if (hasCloudinary) {
+    // Delete photos from Firebase Storage
+    if (hasFirebase && firebaseBucket) {
       try {
-        await cloudinary.api.delete_resources_by_prefix(`event-photos/${event.id}`);
-        await cloudinary.api.delete_folder(`event-photos/${event.id}`).catch(() => {});
+        await firebaseBucket.deleteFiles({ prefix: `events/${event.id}/` });
       } catch (e) {
-        console.warn('Cloudinary cleanup note:', e.message);
+        console.warn('Firebase folder deletion warning:', e.message);
       }
     } else {
       const eventDir = path.join(UPLOADS_DIR, req.params.eventId);
@@ -383,7 +418,7 @@ app.delete('/api/events/:eventId', async (req, res, next) => {
       }
     }
 
-    await deleteEvent(req.params.eventId);
+    await deleteEventDoc(req.params.eventId);
     res.json({ success: true, deleted: req.params.eventId });
   } catch (err) {
     next(err);
@@ -401,11 +436,12 @@ app.delete('/api/events/:eventId/photos/:photoId', async (req, res, next) => {
 
     const photo = event.photos[idx];
 
-    if (hasCloudinary && photo.publicId) {
+    // Delete from Firebase Storage or local disk
+    if (hasFirebase && firebaseBucket && photo.filePath) {
       try {
-        await cloudinary.uploader.destroy(photo.publicId);
+        await firebaseBucket.file(photo.filePath).delete({ ignoreNotFound: true });
       } catch (e) {
-        console.error('Cloudinary photo deletion error:', e.message);
+        console.warn('Firebase photo delete error:', e.message);
       }
     } else if (photo.filename) {
       const filePath = path.join(UPLOADS_DIR, req.params.eventId, photo.filename);
@@ -444,20 +480,18 @@ app.use((err, req, res, next) => {
   if (err && err.code === 'INVALID_FILE_TYPE') {
     return res.status(400).json({ error: err.message });
   }
-  console.error('Unhandled Error:', err);
+  console.error('Server error:', err);
   res.status(500).json({ error: err.message || 'Server error' });
 });
 
-// ─── Start Server ─────────────────────────────────────────────────────────────
-initDB().then(() => {
-  app.listen(PORT, '0.0.0.0', () => {
-    const localIP = process.env.LOCAL_IP || getLocalIP();
-    console.log(`\n🎉 Event Photo Sharing App running on port ${PORT}!`);
-    console.log(`📸 Admin panel   → http://localhost:${PORT}/`);
-    console.log(`📲 Phone QR URL  → http://${localIP}:${PORT}/upload/<eventId>`);
-    if (process.env.BASE_URL) {
-      console.log(`🌐 Public URL    → ${process.env.BASE_URL}`);
-    }
-    console.log('');
-  });
+// ─── Start ────────────────────────────────────────────────────────────────────
+app.listen(PORT, '0.0.0.0', () => {
+  const localIP = process.env.LOCAL_IP || getLocalIP();
+  console.log(`\n🎉 Event Photo Sharing App running on port ${PORT}!`);
+  console.log(`📸 Admin panel   → http://localhost:${PORT}/`);
+  console.log(`📲 Phone QR URL  → http://${localIP}:${PORT}/upload/<eventId>`);
+  if (process.env.BASE_URL) {
+    console.log(`🌐 Public URL    → ${process.env.BASE_URL}`);
+  }
+  console.log('');
 });
