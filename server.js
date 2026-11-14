@@ -66,25 +66,77 @@ function getBaseUrl(req) {
 let firebaseBucket = null;
 let firestoreDb = null;
 let hasFirebase = false;
+let firebaseInitError = null;
+
+function parseServiceAccount() {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    let raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+
+    // If enclosed in outer quotes, strip them
+    if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+      raw = raw.slice(1, -1).trim();
+    }
+
+    // Try base64 decoding if user base64-encoded it
+    if (!raw.startsWith('{')) {
+      try {
+        const decoded = Buffer.from(raw, 'base64').toString('utf8').trim();
+        if (decoded.startsWith('{')) raw = decoded;
+      } catch (e) {}
+    }
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (parseErr) {
+      // Fix unescaped newlines in private key if raw pasted
+      try {
+        const sanitized = raw.replace(/\r?\n/g, '\\n');
+        parsed = JSON.parse(sanitized);
+      } catch (e2) {
+        throw new Error(`Failed to parse FIREBASE_SERVICE_ACCOUNT JSON: ${parseErr.message}`);
+      }
+    }
+
+    // Format private key properly for Google Auth
+    if (parsed && parsed.private_key) {
+      parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+    }
+    return parsed;
+  }
+
+  // Individual env vars
+  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    return {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    };
+  }
+
+  // Local file
+  const keyPath = path.join(__dirname, 'firebase-service-account.json');
+  if (fs.existsSync(keyPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+      if (parsed.private_key) parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+      return parsed;
+    } catch (e) {}
+  }
+
+  return null;
+}
 
 function initFirebase() {
   try {
-    let serviceAccount = null;
-
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    } else if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-      serviceAccount = {
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-      };
-    } else {
-      const keyPath = path.join(__dirname, 'firebase-service-account.json');
-      if (fs.existsSync(keyPath)) {
-        serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-      }
+    // If already initialized in this serverless context, reuse app
+    if (admin.apps && admin.apps.length > 0) {
+      firestoreDb = admin.firestore();
+      hasFirebase = true;
+      return;
     }
+
+    const serviceAccount = parseServiceAccount();
 
     if (serviceAccount) {
       const projectId = serviceAccount.project_id || serviceAccount.projectId;
@@ -102,11 +154,13 @@ function initFirebase() {
         console.log('Firebase Cloud Storage not enabled, using Firestore database for photo storage.');
       }
       hasFirebase = true;
+      firebaseInitError = null;
       console.log(`🔥 Firebase enabled: Firestore DB active for permanent events & photo storage`);
     } else {
       console.log('📁 Local mode: photos saved to ./uploads');
     }
   } catch (err) {
+    firebaseInitError = err.message;
     console.error('⚠️ Firebase init error, falling back to local files:', err.message);
   }
 }
@@ -346,6 +400,19 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
+
+// ─── API: Status & Diagnostics ───────────────────────────────────────────────
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'ok',
+    environment: process.env.VERCEL ? 'vercel' : 'node',
+    hasFirebase,
+    hasFirestore: Boolean(firestoreDb),
+    hasStorageBucket: Boolean(firebaseBucket),
+    firebaseError: firebaseInitError,
+    serviceAccountConfigured: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_PROJECT_ID)
+  });
+});
 
 // ─── API: Dynamic QR Code Generation (Zero-disk on Vercel) ───────────────────
 app.get('/api/events/:eventId/qr', async (req, res) => {
