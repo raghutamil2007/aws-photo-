@@ -339,6 +339,52 @@
       document.getElementById('upload-btn').disabled = !selectedFiles.length;
     }
 
+    function compressImage(file) {
+      return new Promise((resolve) => {
+        if (!file.type.startsWith('image/') || file.size < 800 * 1024) {
+          return resolve(file);
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const MAX_DIM = 1920;
+            let width = img.width;
+            let height = img.height;
+            if (width > MAX_DIM || height > MAX_DIM) {
+              if (width > height) {
+                height = Math.round((height * MAX_DIM) / width);
+                width = MAX_DIM;
+              } else {
+                width = Math.round((width * MAX_DIM) / height);
+                height = MAX_DIM;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            canvas.toBlob((blob) => {
+              if (blob && blob.size < file.size) {
+                const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+                  type: 'image/jpeg',
+                  lastModified: Date.now()
+                });
+                resolve(compressedFile);
+              } else {
+                resolve(file);
+              }
+            }, 'image/jpeg', 0.82);
+          };
+          img.onerror = () => resolve(file);
+          img.src = e.target.result;
+        };
+        reader.onerror = () => resolve(file);
+        reader.readAsDataURL(file);
+      });
+    }
+
     async function uploadPhotos() {
       if (!selectedFiles.length) return;
       const btn = document.getElementById('upload-btn');
@@ -349,57 +395,54 @@
       const progressBar = document.getElementById('progress-bar');
       progressWrap.style.display = 'block';
 
-      const form = new FormData();
-      form.append('uploaderName', document.getElementById('uploader-name').value || 'Guest');
-      selectedFiles.forEach(f => form.append('photos', f));
+      const uploaderName = document.getElementById('uploader-name').value || 'Guest';
+      let totalUploadedCount = 0;
+      let lastTotalPhotos = 0;
 
       try {
-        // Simulate progress
-        let prog = 0;
-        const progInterval = setInterval(() => {
-          prog = Math.min(prog + Math.random() * 15, 85);
-          progressBar.style.width = prog + '%';
-        }, 200);
-
-        // Mark items as uploading
-        selectedFiles.forEach((_, i) => {
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const file = selectedFiles[i];
           const el = document.getElementById(`prev-${i}`);
           if (el) {
             el.classList.add('uploading');
             el.querySelector('.status-overlay').style.display = 'flex';
             el.querySelector('.status-overlay').textContent = '⏳';
           }
-        });
 
-        const res = await fetch(`/api/events/${eventId}/upload`, { method: 'POST', body: form });
-        clearInterval(progInterval);
-        progressBar.style.width = '100%';
+          // Compress to stay comfortably below Vercel payload limits
+          const compressed = await compressImage(file);
 
-        if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || 'Upload failed');
-        }
+          const form = new FormData();
+          form.append('uploaderName', uploaderName);
+          form.append('photos', compressed);
 
-        const data = await res.json();
+          const res = await fetch(`/api/events/${eventId}/upload`, { method: 'POST', body: form });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Upload failed for photo ${i + 1}`);
+          }
 
-        // Mark done
-        selectedFiles.forEach((_, i) => {
-          const el = document.getElementById(`prev-${i}`);
+          const data = await res.json();
+          totalUploadedCount += (data.uploaded || []).length;
+          lastTotalPhotos = data.totalPhotos || totalUploadedCount;
+
           if (el) {
             el.classList.remove('uploading');
             el.classList.add('done');
             el.querySelector('.status-overlay').style.display = 'flex';
             el.querySelector('.status-overlay').textContent = '✅';
           }
-        });
+
+          progressBar.style.width = `${Math.round(((i + 1) / selectedFiles.length) * 100)}%`;
+        }
 
         setTimeout(() => {
           document.getElementById('upload-screen').style.display = 'none';
           document.getElementById('success-screen').style.display = 'block';
           document.getElementById('success-msg').textContent =
-            `${data.uploaded.length} photo${data.uploaded.length !== 1 ? 's' : ''} shared! The event now has ${data.totalPhotos} photos total.`;
+            `${totalUploadedCount} photo${totalUploadedCount !== 1 ? 's' : ''} shared! The event now has ${lastTotalPhotos} photos total.`;
           document.getElementById('gallery-link').href = `/gallery/${eventId}`;
-        }, 800);
+        }, 600);
 
       } catch (err) {
         showToast('❌ ' + err.message);

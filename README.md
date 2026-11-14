@@ -4,80 +4,76 @@ Share a QR code at your event. Guests scan it with their phone (mobile data or W
 
 ---
 
-## 🚀 Free Hosting Stack
+## ⚡ Free Stack (Vercel + Firebase)
 
 | Component | Service | Free Tier Allowance |
 |---|---|---|
-| **App Hosting** | **[Render.com](https://render.com)** | Free Web Service (Node.js) |
+| **Web Hosting & Serverless** | **[Vercel.com](https://vercel.com)** | Free Hobby Tier (Fast Edge CDN) |
 | **Photo Storage** | **[Firebase Storage](https://firebase.google.com)** | 5 GB free storage & fast Google CDN |
 | **Database** | **[Firebase Firestore](https://firebase.google.com)** | 1 GB permanent free database |
-| **Code & Deploy** | **[GitHub](https://github.com)** | Free public/private repo & auto-deploy |
+| **Code & Auto-Deploy** | **[GitHub](https://github.com)** | Free public/private repo |
 
 ---
 
-## 🛠️ Step-by-Step Setup Guide
+## 🛠️ Step-by-Step Vercel Deployment Guide
 
 ### Step 1: Create a Free Firebase Project (2 minutes)
 1. Go to **[console.firebase.google.com](https://console.firebase.google.com)** and click **Add Project**.
-2. Name your project (e.g. `event-photos-app`) and click through to create it.
-3. In the left sidebar:
-   - Click **Build** → **Firestore Database** → Click **Create Database** (choose **Start in production mode** or **test mode**).
-   - Click **Build** → **Storage** → Click **Get Started** (accept default settings).
+2. Name your project (e.g. `event-photos-app`) and complete setup.
+3. In the Firebase console left menu:
+   - Click **Build** → **Firestore Database** → **Create Database** (accept default settings).
+   - Click **Build** → **Storage** → **Get Started** (accept default settings).
 
 ---
 
-### Step 2: Download Firebase Service Account Key (1 minute)
-1. In the Firebase console, click the **⚙️ Gear icon** (top left next to Project Overview) → **Project settings**.
+### Step 2: Get Your Firebase Service Account Key (1 minute)
+1. In Firebase console, click the **⚙️ Gear icon** (top left next to Project Overview) → **Project settings**.
 2. Click the **Service accounts** tab.
 3. Click **Generate new private key** → **Generate key**.
 4. A `.json` file will download to your computer.
 
 ---
 
-### Step 3: Push Your Code to GitHub
-Open your terminal in `d:\aws\event-photos`:
+### Step 3: Push Changes to GitHub
+Your code is configured for Vercel. Push to GitHub:
 ```bash
-git remote add origin https://github.com/YOUR_USERNAME/event-photos.git
-git branch -M main
-git push -u origin main
+git add .
+git commit -m "Configure for Vercel deployment with client compression"
+git push origin main
 ```
 
 ---
 
-### Step 4: Deploy on Render (Free)
-1. Go to **[dashboard.render.com](https://dashboard.render.com)** and click **New +** → **Web Service**.
-2. Connect your GitHub repository `event-photos`.
-3. Configure the settings:
-   - **Name**: `event-photos`
-   - **Runtime**: `Node`
-   - **Build Command**: `npm install`
-   - **Start Command**: `node server.js`
-   - **Instance Type**: `Free`
-4. Under **Environment Variables**, add:
+### Step 4: Deploy on Vercel (Free & Instant)
+1. Go to **[vercel.com](https://vercel.com)** and log in with GitHub.
+2. Click **Add New...** → **Project**.
+3. Find your **`aws-photo-`** repository and click **Import**.
+4. Leave Framework Preset as **Other** (it automatically uses `vercel.json` and `api/index.js`).
+5. Under **Environment Variables**, add:
    | Key | Value |
    |---|---|
-   | `NODE_VERSION` | `18.18.0` |
-   | `FIREBASE_SERVICE_ACCOUNT` | *Open the downloaded `.json` file, copy all text inside, and paste it here!* |
-5. Click **Create Web Service**.
+   | `FIREBASE_SERVICE_ACCOUNT` | *Open your downloaded Firebase `.json` file in Notepad, copy all text, and paste it here!* |
+6. Click **Deploy**!
 
-Within 2 minutes, Render will build and deploy your app. You will get a live URL:
-👉 `https://event-photos.onrender.com`
+Within 30 seconds, Vercel will deploy your app and give you a live production URL:
+👉 `https://aws-photo-xxxx.vercel.app`
 
 ---
 
 ## 📱 How It Works for Guests
-1. Open your live Render link (`https://event-photos.onrender.com`).
-2. Create an event → QR code is generated instantly with your live HTTPS domain.
+1. Open your Vercel link (`https://your-project.vercel.app`).
+2. Create an event → QR code is generated on-the-fly linking to your live Vercel domain.
 3. Guests scan the QR code from their phone (using mobile data 4G/5G or any Wi-Fi).
-4. Photos upload directly to Google Cloud / Firebase Storage and are stored permanently.
-5. Anyone can view the gallery, download photos, and view them in the lightbox.
+4. Photos are optimized on the phone and saved directly to your Firebase Storage bucket!
+5. Everyone can view the gallery, lightbox, and download photos.
 
 ---
 
 ## 💻 Local Testing
-To test locally:
+To test on your laptop:
 ```bash
 npm install
 npm start
 ```
-- If Firebase credentials are not set, it automatically saves photos in `./uploads` on your laptop.
+- Open `http://localhost:3000`.
+- Automatically uses local disk storage (`uploads/`) when Firebase credentials are not provided.

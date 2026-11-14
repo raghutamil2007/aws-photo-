@@ -39,16 +39,20 @@ function getLocalIP() {
   return candidates[0].ip;
 }
 
-// ─── Base URL Helper (Render HTTPS vs Local IP) ──────────────────────────────
+// ─── Base URL Helper (Vercel / Render HTTPS vs Local IP) ─────────────────────
 function getBaseUrl(req) {
-  // If explicitly configured in environment (Render dashboard)
+  // If explicitly configured in environment
   if (process.env.BASE_URL) {
     return process.env.BASE_URL.replace(/\/$/, '');
   }
-  // Auto-detect Render reverse proxy headers (e.g. https://my-app.onrender.com)
+  // Auto-detect reverse proxy headers (Vercel, Render, etc.)
   if (req && req.headers['x-forwarded-host']) {
     const proto = req.headers['x-forwarded-proto'] || 'https';
     return `${proto}://${req.headers['x-forwarded-host']}`;
+  }
+  // Vercel auto-provided domain
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
   }
   // If request has host header that is not localhost
   if (req && req.get('host')) {
@@ -484,14 +488,18 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Server error' });
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
-  const localIP = process.env.LOCAL_IP || getLocalIP();
-  console.log(`\n🎉 Event Photo Sharing App running on port ${PORT}!`);
-  console.log(`📸 Admin panel   → http://localhost:${PORT}/`);
-  console.log(`📲 Phone QR URL  → http://${localIP}:${PORT}/upload/<eventId>`);
-  if (process.env.BASE_URL) {
-    console.log(`🌐 Public URL    → ${process.env.BASE_URL}`);
-  }
-  console.log('');
-});
+// ─── Start (Only when running locally, not in serverless Vercel) ─────────────
+if (!process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    const localIP = process.env.LOCAL_IP || getLocalIP();
+    console.log(`\n🎉 Event Photo Sharing App running on port ${PORT}!`);
+    console.log(`📸 Admin panel   → http://localhost:${PORT}/`);
+    console.log(`📲 Phone QR URL  → http://${localIP}:${PORT}/upload/<eventId>`);
+    if (process.env.BASE_URL) {
+      console.log(`🌐 Public URL    → ${process.env.BASE_URL}`);
+    }
+    console.log('');
+  });
+}
+
+module.exports = app;
