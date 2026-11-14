@@ -41,20 +41,16 @@ function getLocalIP() {
 
 // ─── Base URL Helper (Vercel / Render HTTPS vs Local IP) ─────────────────────
 function getBaseUrl(req) {
-  // If explicitly configured in environment
   if (process.env.BASE_URL) {
     return process.env.BASE_URL.replace(/\/$/, '');
   }
-  // Auto-detect reverse proxy headers (Vercel, Render, etc.)
   if (req && req.headers['x-forwarded-host']) {
     const proto = req.headers['x-forwarded-proto'] || 'https';
     return `${proto}://${req.headers['x-forwarded-host']}`;
   }
-  // Vercel auto-provided domain
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
-  // If request has host header that is not localhost
   if (req && req.get('host')) {
     const host = req.get('host');
     if (!host.includes('localhost') && !host.includes('127.0.0.1')) {
@@ -62,7 +58,6 @@ function getBaseUrl(req) {
       return `${proto}://${host}`;
     }
   }
-  // Local network IP for Wi-Fi testing
   const localIP = process.env.LOCAL_IP || getLocalIP();
   return `http://${localIP}:${PORT}`;
 }
@@ -101,11 +96,15 @@ function initFirebase() {
       });
 
       firestoreDb = admin.firestore();
-      firebaseBucket = admin.storage().bucket();
+      try {
+        firebaseBucket = admin.storage().bucket();
+      } catch (e) {
+        console.log('Firebase Cloud Storage not enabled, using Firestore database for photo storage.');
+      }
       hasFirebase = true;
-      console.log(`🔥 Firebase enabled: Firestore DB + Cloud Storage (${bucketName})`);
+      console.log(`🔥 Firebase enabled: Firestore DB active for permanent events & photo storage`);
     } else {
-      console.log('📁 Local mode: photos saved to ./uploads (add Firebase credentials for Render)');
+      console.log('📁 Local mode: photos saved to ./uploads');
     }
   } catch (err) {
     console.error('⚠️ Firebase init error, falling back to local files:', err.message);
@@ -114,7 +113,7 @@ function initFirebase() {
 
 initFirebase();
 
-async function uploadToFirebase(buffer, originalname, eventId, mimetype) {
+async function uploadToFirebaseStorage(buffer, originalname, eventId, mimetype) {
   const ext = path.extname(originalname).toLowerCase();
   const filename = `${Date.now()}-${uuidv4().slice(0, 8)}${ext}`;
   const filePath = `events/${eventId}/${filename}`;
@@ -154,18 +153,35 @@ function saveLocalEvents(events) {
   fs.writeFileSync(EVENTS_FILE, JSON.stringify(events, null, 2));
 }
 
-// ─── Event Storage Operations ────────────────────────────────────────────────
+// ─── Event & Photo Storage Operations ────────────────────────────────────────
 async function getAllEvents() {
   if (hasFirebase && firestoreDb) {
     try {
       const snapshot = await firestoreDb.collection('events').orderBy('createdAt', 'desc').get();
-      return snapshot.docs.map(doc => doc.data());
+      return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: data.id,
+          name: data.name,
+          hostName: data.hostName,
+          createdAt: data.createdAt,
+          photoCount: data.photoCount !== undefined ? data.photoCount : (data.photos || []).length
+        };
+      });
     } catch (e) {
       console.error('Firestore getAllEvents error, using local fallback:', e.message);
     }
   }
   const events = loadLocalEvents();
-  return Object.values(events).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return Object.values(events)
+    .map(e => ({
+      id: e.id,
+      name: e.name,
+      hostName: e.hostName,
+      createdAt: e.createdAt,
+      photoCount: e.photoCount !== undefined ? e.photoCount : (e.photos || []).length
+    }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 async function getEventById(eventId) {
@@ -195,10 +211,95 @@ async function saveEvent(event) {
   saveLocalEvents(events);
 }
 
+async function getPhotosForEvent(eventId) {
+  if (hasFirebase && firestoreDb) {
+    try {
+      const snap = await firestoreDb
+        .collection('events')
+        .doc(eventId)
+        .collection('photos')
+        .orderBy('uploadedAt', 'desc')
+        .get();
+      if (!snap.empty) {
+        return snap.docs.map(d => d.data());
+      }
+    } catch (e) {
+      // Fall through to event doc photos
+    }
+  }
+  const event = await getEventById(eventId);
+  return event ? (event.photos || []) : [];
+}
+
+async function savePhotoForEvent(eventId, photo) {
+  if (hasFirebase && firestoreDb) {
+    try {
+      // Store in subcollection so each photo has its own 1MB document
+      await firestoreDb
+        .collection('events')
+        .doc(eventId)
+        .collection('photos')
+        .doc(photo.id)
+        .set(photo);
+
+      // Increment photoCount in the parent event document
+      await firestoreDb.collection('events').doc(eventId).set({
+        photoCount: admin.firestore.FieldValue.increment(1)
+      }, { merge: true });
+      return;
+    } catch (e) {
+      console.error('Firestore save photo error:', e.message);
+    }
+  }
+  // Local fallback
+  const events = loadLocalEvents();
+  if (events[eventId]) {
+    if (!events[eventId].photos) events[eventId].photos = [];
+    events[eventId].photos.unshift(photo);
+    events[eventId].photoCount = events[eventId].photos.length;
+    saveLocalEvents(events);
+  }
+}
+
+async function deletePhotoFromEvent(eventId, photoId) {
+  if (hasFirebase && firestoreDb) {
+    try {
+      await firestoreDb
+        .collection('events')
+        .doc(eventId)
+        .collection('photos')
+        .doc(photoId)
+        .delete();
+
+      await firestoreDb.collection('events').doc(eventId).set({
+        photoCount: admin.firestore.FieldValue.increment(-1)
+      }, { merge: true });
+      return;
+    } catch (e) {
+      console.error('Firestore delete photo error:', e.message);
+    }
+  }
+  // Local fallback
+  const events = loadLocalEvents();
+  if (events[eventId] && events[eventId].photos) {
+    const idx = events[eventId].photos.findIndex(p => p.id === photoId);
+    if (idx !== -1) {
+      events[eventId].photos.splice(idx, 1);
+      events[eventId].photoCount = events[eventId].photos.length;
+      saveLocalEvents(events);
+    }
+  }
+}
+
 async function deleteEventDoc(eventId) {
   if (hasFirebase && firestoreDb) {
     try {
-      await firestoreDb.collection('events').doc(eventId).delete();
+      // Delete all photos in subcollection
+      const snap = await firestoreDb.collection('events').doc(eventId).collection('photos').get();
+      const batch = firestoreDb.batch();
+      snap.docs.forEach(doc => batch.delete(doc.ref));
+      batch.delete(firestoreDb.collection('events').doc(eventId));
+      await batch.commit();
       return;
     } catch (e) {
       console.error('Firestore deleteEvent error, using local fallback:', e.message);
@@ -241,12 +342,12 @@ const upload = multer({
 });
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// ─── API: Dynamic QR Code Generation (Zero-disk on Render) ───────────────────
+// ─── API: Dynamic QR Code Generation (Zero-disk on Vercel) ───────────────────
 app.get('/api/events/:eventId/qr', async (req, res) => {
   try {
     const event = await getEventById(req.params.eventId);
@@ -286,6 +387,7 @@ app.post('/api/events', async (req, res, next) => {
       description: (description || '').trim(),
       hostName: (hostName || 'Host').trim(),
       createdAt: new Date().toISOString(),
+      photoCount: 0,
       photos: []
     };
 
@@ -308,6 +410,9 @@ app.get('/api/events/:eventId', async (req, res, next) => {
   try {
     const event = await getEventById(req.params.eventId);
     if (!event) return res.status(404).json({ error: 'Event not found' });
+    const photos = await getPhotosForEvent(req.params.eventId);
+    event.photos = photos;
+    event.photoCount = photos.length;
     res.json(event);
   } catch (err) {
     next(err);
@@ -317,21 +422,14 @@ app.get('/api/events/:eventId', async (req, res, next) => {
 // ─── API: List All Events ─────────────────────────────────────────────────────
 app.get('/api/events', async (req, res, next) => {
   try {
-    const events = await getAllEvents();
-    const list = events.map(e => ({
-      id: e.id,
-      name: e.name,
-      hostName: e.hostName,
-      createdAt: e.createdAt,
-      photoCount: (e.photos || []).length
-    }));
+    const list = await getAllEvents();
     res.json(list);
   } catch (err) {
     next(err);
   }
 });
 
-// ─── API: Upload Photos ───────────────────────────────────────────────────────
+// ─── API: Upload Photos (100% Free: Firestore Base64 or Cloud Storage) ──────
 app.post('/api/events/:eventId/upload', upload.array('photos', 20), async (req, res, next) => {
   try {
     const event = await getEventById(req.params.eventId);
@@ -344,31 +442,56 @@ app.post('/api/events/:eventId/upload', upload.array('photos', 20), async (req, 
     const uploaderName = (req.body.uploaderName || 'Guest').trim();
     const uploaded = [];
 
-    if (hasFirebase && firebaseBucket) {
-      // Upload to Firebase Storage
-      for (const file of req.files) {
-        const { filename, filePath, publicUrl } = await uploadToFirebase(
-          file.buffer,
-          file.originalname,
-          event.id,
-          file.mimetype
-        );
+    // If Firebase is active:
+    if (hasFirebase) {
+      let usedStorage = false;
 
-        const photo = {
-          id: uuidv4().slice(0, 8),
-          filePath,
-          filename,
-          originalName: file.originalname,
-          size: file.size,
-          url: publicUrl,
-          uploadedAt: new Date().toISOString(),
-          uploaderName
-        };
-        event.photos.push(photo);
-        uploaded.push(photo);
+      // Try Firebase Storage first IF bucket exists
+      if (firebaseBucket) {
+        try {
+          for (const file of req.files) {
+            const { filename, filePath, publicUrl } = await uploadToFirebaseStorage(
+              file.buffer,
+              file.originalname,
+              event.id,
+              file.mimetype
+            );
+
+            const photo = {
+              id: uuidv4().slice(0, 8),
+              filePath,
+              filename,
+              size: file.size,
+              url: publicUrl,
+              uploadedAt: new Date().toISOString(),
+              uploaderName
+            };
+            await savePhotoForEvent(event.id, photo);
+            uploaded.push(photo);
+          }
+          usedStorage = true;
+        } catch (storageErr) {
+          console.warn('Firebase Cloud Storage requires Blaze plan, switching to 100% Free Firestore DB storage:', storageErr.message);
+        }
+      }
+
+      // If Storage failed (asks to pay) or not available, use Firestore directly (100% Free, NO payment!)
+      if (!usedStorage && firestoreDb) {
+        for (const file of req.files) {
+          const photo = {
+            id: uuidv4().slice(0, 8),
+            filename: file.originalname,
+            size: file.size,
+            url: `data:${file.mimetype || 'image/jpeg'};base64,${file.buffer.toString('base64')}`,
+            uploadedAt: new Date().toISOString(),
+            uploaderName
+          };
+          await savePhotoForEvent(event.id, photo);
+          uploaded.push(photo);
+        }
       }
     } else {
-      // Local disk upload
+      // Local disk fallback
       for (const file of req.files) {
         const photo = {
           id: uuidv4().slice(0, 8),
@@ -379,13 +502,13 @@ app.post('/api/events/:eventId/upload', upload.array('photos', 20), async (req, 
           uploadedAt: new Date().toISOString(),
           uploaderName
         };
-        event.photos.push(photo);
+        await savePhotoForEvent(event.id, photo);
         uploaded.push(photo);
       }
     }
 
-    await saveEvent(event);
-    res.json({ success: true, uploaded, totalPhotos: event.photos.length });
+    const allPhotos = await getPhotosForEvent(event.id);
+    res.json({ success: true, uploaded, totalPhotos: allPhotos.length });
   } catch (err) {
     next(err);
   }
@@ -394,9 +517,8 @@ app.post('/api/events/:eventId/upload', upload.array('photos', 20), async (req, 
 // ─── API: Get Photos for Event ────────────────────────────────────────────────
 app.get('/api/events/:eventId/photos', async (req, res, next) => {
   try {
-    const event = await getEventById(req.params.eventId);
-    if (!event) return res.status(404).json({ error: 'Event not found' });
-    res.json(event.photos || []);
+    const photos = await getPhotosForEvent(req.params.eventId);
+    res.json(photos);
   } catch (err) {
     next(err);
   }
@@ -408,13 +530,11 @@ app.delete('/api/events/:eventId', async (req, res, next) => {
     const event = await getEventById(req.params.eventId);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    // Delete photos from Firebase Storage
+    // Try delete photos from Firebase Storage if it was used
     if (hasFirebase && firebaseBucket) {
       try {
         await firebaseBucket.deleteFiles({ prefix: `events/${event.id}/` });
-      } catch (e) {
-        console.warn('Firebase folder deletion warning:', e.message);
-      }
+      } catch (e) {}
     } else {
       const eventDir = path.join(UPLOADS_DIR, req.params.eventId);
       if (fs.existsSync(eventDir)) {
@@ -432,28 +552,19 @@ app.delete('/api/events/:eventId', async (req, res, next) => {
 // ─── API: Delete Photo ────────────────────────────────────────────────────────
 app.delete('/api/events/:eventId/photos/:photoId', async (req, res, next) => {
   try {
-    const event = await getEventById(req.params.eventId);
-    if (!event) return res.status(404).json({ error: 'Event not found' });
+    const photos = await getPhotosForEvent(req.params.eventId);
+    const photo = photos.find(p => p.id === req.params.photoId);
 
-    const idx = (event.photos || []).findIndex(p => p.id === req.params.photoId);
-    if (idx === -1) return res.status(404).json({ error: 'Photo not found' });
-
-    const photo = event.photos[idx];
-
-    // Delete from Firebase Storage or local disk
-    if (hasFirebase && firebaseBucket && photo.filePath) {
+    if (photo && photo.filePath && hasFirebase && firebaseBucket) {
       try {
         await firebaseBucket.file(photo.filePath).delete({ ignoreNotFound: true });
-      } catch (e) {
-        console.warn('Firebase photo delete error:', e.message);
-      }
-    } else if (photo.filename) {
+      } catch (e) {}
+    } else if (photo && photo.filename) {
       const filePath = path.join(UPLOADS_DIR, req.params.eventId, photo.filename);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 
-    event.photos.splice(idx, 1);
-    await saveEvent(event);
+    await deletePhotoFromEvent(req.params.eventId, req.params.photoId);
     res.json({ success: true });
   } catch (err) {
     next(err);
