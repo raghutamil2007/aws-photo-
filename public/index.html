@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EventSnap – Event Photo Sharing</title>
+  <style>
+    :root {
+      --primary: #6c63ff;
+      --primary-dark: #574fd6;
+      --bg: #0f0f1a;
+      --surface: #1a1a2e;
+      --surface2: #16213e;
+      --text: #e8e8f0;
+      --text-muted: #9898b0;
+      --border: #2a2a4a;
+      --success: #4ade80;
+      --error: #f87171;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* NAV */
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .nav-brand { font-size: 1.3rem; font-weight: 800; color: var(--primary); }
+    .server-pill {
+      margin-left: auto;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 12px;
+      border-radius: 999px;
+      background: rgba(248,113,113,0.15);
+      color: var(--error);
+      border: 1px solid var(--error);
+    }
+    .server-pill.ok { background: rgba(74,222,128,0.15); color: var(--success); border-color: var(--success); }
+
+    /* HERO */
+    .hero {
+      background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+      padding: 3rem 2rem;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .hero h1 { font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 800; letter-spacing: -1px; }
+    .hero h1 span { color: var(--primary); }
+    .hero p { color: var(--text-muted); margin-top: 0.75rem; font-size: 1rem; }
+
+    /* MAIN */
+    main { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    /* SERVER ERROR BANNER */
+    #server-error {
+      display: none;
+      background: rgba(248,113,113,0.1);
+      border: 1px solid var(--error);
+      border-radius: var(--radius);
+      padding: 1rem 1.5rem;
+      margin-bottom: 1.5rem;
+      color: var(--error);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* CARD */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    .card h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 1.5rem; }
+
+    /* FORM */
+    .form-group { margin-bottom: 1.1rem; }
+    label { display: block; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.35rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    input, textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    input:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(108,99,255,0.15); }
+    textarea { resize: vertical; min-height: 70px; }
+
+    /* BUTTONS */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.6rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      text-decoration: none;
+    }
+    .btn-primary { background: var(--primary); color: #fff; width: 100%; justify-content: center; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-dark); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-sm { padding: 0.45rem 0.9rem; font-size: 0.8rem; border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 6px; }
+    .btn-sm:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* QR RESULT */
+    #qr-result {
+      display: none;
+      background: var(--surface);
+      border: 2px solid var(--primary);
+      border-radius: var(--radius);
+      padding: 2rem;
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+    #qr-result h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.4rem; }
+    #qr-result p { color: var(--text-muted); font-size: 0.88rem; }
+    #qr-img { width: 200px; height: 200px; border-radius: 12px; border: 4px solid #fff; margin: 1.25rem auto; display: block; box-shadow: 0 4px 32px rgba(108,99,255,0.35); }
+    .qr-url-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      font-size: 0.8rem;
+      color: var(--primary);
+      word-break: break-all;
+      margin: 0.5rem 0;
+      text-align: left;
+    }
+    .qr-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; margin-top: 1.25rem; }
+
+    /* EVENTS LIST */
+    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .section-header h2 { font-size: 1.05rem; font-weight: 700; }
+    .events-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .event-row {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      transition: border-color 0.2s;
+    }
+    .event-row:hover { border-color: var(--primary); }
+    .event-info { flex: 1; min-width: 0; }
+    .event-name { font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .event-meta { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem; display: flex; gap: 1rem; flex-wrap: wrap; }
+    .chip { background: rgba(108,99,255,0.15); color: var(--primary); border-radius: 999px; padding: 1px 10px; font-size: 0.75rem; font-weight: 600; }
+    .event-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+
+    /* CONFIRM MODAL */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      width: 100%;
+      max-width: 400px;
+      margin: 1rem;
+      box-shadow: 0 8px 48px rgba(0,0,0,0.5);
+    }
+    .modal h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .modal p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem; line-height: 1.6; }
+    .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+    .btn-cancel { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+    .btn-cancel:hover { border-color: var(--text-muted); }
+    .btn-delete { background: var(--error); border: none; color: #fff; padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+    .btn-delete:hover { background: #dc2626; }
+    .btn-delete:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* EMPTY */
+    .empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted); }
+    .empty .icon { font-size: 2.5rem; display: block; margin-bottom: 0.75rem; }
+
+    /* TOAST */
+    .toast {
+      position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+      background: var(--surface); border: 1px solid var(--success); color: var(--success);
+      padding: 0.65rem 1.4rem; border-radius: 999px; font-size: 0.88rem; font-weight: 500;
+      z-index: 999; opacity: 0; transition: opacity 0.3s; white-space: nowrap; pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    .toast.err { border-color: var(--error); color: var(--error); }
+
+    /* SPINNER */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <span style="font-size:1.5rem">📸</span>
+  <span class="nav-brand">EventSnap</span>
+  <span class="server-pill" id="server-pill">● Connecting...</span>
+</nav>
+
+<div class="hero">
+  <h1>Share Every <span>Moment</span></h1>
+  <p>Create an event → get a QR code → guests scan and upload photos.</p>
+</div>
+
+<main>
+
+  <!-- Server error banner -->
+  <div id="server-error">
+    ⚠️ <strong>Cannot reach the server.</strong><br>
+    Make sure the app is running: open a terminal in <code>d:\aws\event-photos</code> and run <code>node server.js</code><br>
+    Then open this page at <strong>http://localhost:3000</strong> (not as a local file).
+  </div>
+
+  <!-- Create Event -->
+  <div class="card">
+    <h2>✨ Create New Event</h2>
+    <form id="create-form" autocomplete="off">
+      <div class="form-group">
+        <label>Event Name *</label>
+        <input type="text" id="event-name" placeholder="e.g. Sarah's Wedding, Tech Conf 2026" required />
+      </div>
+      <div class="form-group">
+        <label>Host Name</label>
+        <input type="text" id="host-name" placeholder="Your name" />
+      </div>
+      <div class="form-group">
+        <label>Description (optional)</label>
+        <textarea id="event-desc" placeholder="Tell guests what this event is about..."></textarea>
+      </div>
+      <button type="submit" class="btn btn-primary" id="create-btn">
+        🎉 Create Event &amp; Generate QR Code
+      </button>
+    </form>
+    <div id="form-error" style="margin-top:0.75rem;color:var(--error);font-size:0.88rem;display:none;"></div>
+  </div>
+
+  <!-- QR Result -->
+  <div id="qr-result">
+    <h3>🎊 Event Created Successfully!</h3>
+    <p id="qr-event-name" style="font-weight:600;color:var(--text);margin-top:0.3rem;"></p>
+    <img id="qr-img" src="" alt="QR Code" />
+    <p>📲 Guests scan this QR code to upload photos</p>
+    <div class="qr-url-box" id="qr-url-box"></div>
+    <div class="qr-actions">
+      <button class="btn btn-sm" onclick="downloadQR()">⬇️ Download QR PNG</button>
+      <button class="btn btn-sm" onclick="copyUploadLink()">🔗 Copy Upload Link</button>
+      <a id="gallery-btn" href="#" target="_blank" class="btn btn-sm">🖼️ Open Gallery</a>
+    </div>
+  </div>
+
+  <!-- Events List -->
+  <div class="section-header">
+    <h2>📋 All Events</h2>
+    <button class="btn btn-sm" onclick="loadEvents()">↻ Refresh</button>
+  </div>
+  <div class="events-list" id="events-list">
+    <div class="empty"><span class="icon">⏳</span>Loading events...</div>
+  </div>
+
+</main>
+
+<!-- Delete Confirm Modal -->
+<div class="modal-backdrop" id="delete-modal">
+  <div class="modal">
+    <h3>🗑️ Delete Event?</h3>
+    <p id="delete-modal-msg">This will permanently delete the event and <strong>all uploaded photos</strong>. This cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn-delete" id="confirm-delete-btn" onclick="confirmDelete()">Delete Event</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let lastQRUrl = '';
+  let lastUploadUrl = '';
+
+  // ── Server health check ──────────────────────────────────────────────────
+  async function checkServer() {
+    try {
+      const r = await fetch('/api/events', { cache: 'no-store' });
+      if (r.ok) {
+        document.getElementById('server-pill').textContent = '● Server Online';
+        document.getElementById('server-pill').className = 'server-pill ok';
+        document.getElementById('server-error').style.display = 'none';
+        return true;
+      }
+    } catch (e) {}
+    document.getElementById('server-pill').textContent = '● Server Offline';
+    document.getElementById('server-pill').className = 'server-pill';
+    document.getElementById('server-error').style.display = 'block';
+    return false;
+  }
+
+  // ── Create Event ─────────────────────────────────────────────────────────
+  document.getElementById('create-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const name = document.getElementById('event-name').value.trim();
+    if (!name) return;
+
+    const btn = document.getElementById('create-btn');
+    const errDiv = document.getElementById('form-error');
+    errDiv.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Creating...';
+
+    try {
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          hostName: document.getElementById('host-name').value.trim(),
+          description: document.getElementById('event-desc').value.trim()
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `Server returned ${res.status}`);
+      }
+
+      // Show QR result
+      lastQRUrl = data.qrCodeUrl;
+      lastUploadUrl = data.uploadUrl;
+
+      document.getElementById('qr-event-name').textContent = data.name;
+      document.getElementById('qr-img').src = data.qrCodeUrl + '?t=' + Date.now();
+      document.getElementById('qr-url-box').textContent = data.uploadUrl;
+      document.getElementById('gallery-btn').href = data.galleryUrl;
+
+      const qrResult = document.getElementById('qr-result');
+      qrResult.style.display = 'block';
+      qrResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      e.target.reset();
+      loadEvents();
+      showToast('✅ Event created!');
+
+    } catch (err) {
+      errDiv.textContent = '❌ ' + err.message;
+      errDiv.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🎉 Create Event &amp; Generate QR Code';
+    }
+  });
+
+  // ── Load Events List ──────────────────────────────────────────────────────
+  async function loadEvents() {
+    const container = document.getElementById('events-list');
+    try {
+      const res = await fetch('/api/events', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to load');
+      const events = await res.json();
+
+      if (!events.length) {
+        container.innerHTML = '<div class="empty"><span class="icon">📭</span>No events yet — create one above!</div>';
+        return;
+      }
+
+      container.innerHTML = events.map(ev => `
+        <div class="event-row" id="row-${ev.id}">
+          <div class="event-info">
+            <div class="event-name">🎪 ${esc(ev.name)}</div>
+            <div class="event-meta">
+              <span>👤 ${esc(ev.hostName)}</span>
+              <span>📅 ${new Date(ev.createdAt).toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'numeric'})}</span>
+              <span class="chip">📸 ${ev.photoCount} photo${ev.photoCount !== 1 ? 's' : ''}</span>
+            </div>
+          </div>
+          <div class="event-actions">
+            <a href="/upload/${ev.id}" target="_blank" class="btn btn-sm">📤 Upload</a>
+            <a href="/gallery/${ev.id}" target="_blank" class="btn btn-sm" style="border-color:var(--primary);color:var(--primary)">🖼️ Gallery</a>
+            <button class="btn btn-sm" style="border-color:var(--error);color:var(--error)" onclick="askDelete('${ev.id}', '${esc(ev.name)}', ${ev.photoCount})">🗑️</button>
+          </div>
+        </div>
+      `).join('');
+
+    } catch (err) {
+      container.innerHTML = `<div class="empty" style="color:var(--error)"><span class="icon">⚠️</span>${err.message}</div>`;
+    }
+  }
+
+  // ── Delete Event ──────────────────────────────────────────────────────────
+  let pendingDeleteId = null;
+
+  function askDelete(eventId, eventName, photoCount) {
+    pendingDeleteId = eventId;
+    const msg = photoCount > 0
+      ? `"<strong>${eventName}</strong>" has <strong>${photoCount} photo${photoCount !== 1 ? 's' : ''}</strong>. All will be permanently deleted.`
+      : `"<strong>${eventName}</strong>" will be permanently deleted.`;
+    document.getElementById('delete-modal-msg').innerHTML = msg;
+    document.getElementById('delete-modal').classList.add('open');
+  }
+
+  function closeDeleteModal() {
+    pendingDeleteId = null;
+    document.getElementById('delete-modal').classList.remove('open');
+  }
+
+  async function confirmDelete() {
+    if (!pendingDeleteId) return;
+    const btn = document.getElementById('confirm-delete-btn');
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
+
+    try {
+      const res = await fetch(`/api/events/${pendingDeleteId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+
+      closeDeleteModal();
+      // Animate row out
+      const row = document.getElementById(`row-${data.deleted}`);
+      if (row) { row.style.opacity = '0'; row.style.transition = 'opacity 0.3s'; setTimeout(() => loadEvents(), 350); }
+      else loadEvents();
+      showToast('🗑️ Event deleted');
+    } catch (err) {
+      showToast('❌ ' + err.message, 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Delete Event';
+    }
+  }
+
+  // Close modal on backdrop click
+  document.getElementById('delete-modal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeDeleteModal();
+  });
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
+  function downloadQR() {
+    if (!lastQRUrl) return;
+    const a = document.createElement('a');
+    a.href = lastQRUrl;
+    a.download = 'event-qr.png';
+    a.click();
+  }
+
+  function copyUploadLink() {
+    if (!lastUploadUrl) return;
+    navigator.clipboard.writeText(lastUploadUrl)
+      .then(() => showToast('🔗 Link copied!'))
+      .catch(() => showToast('Could not copy — copy manually from the box above', 'err'));
+  }
+
+  function showToast(msg, type = '') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (type === 'err' ? ' err' : '');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  function esc(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  checkServer().then(ok => { if (ok) loadEvents(); });
+  setInterval(checkServer, 10000); // re-check server every 10s
+</script>
+</body>
+</html>

@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Upload Photos – EventSnap</title>
+  <meta name="theme-color" content="#6c63ff" />
+  <style>
+    :root {
+      --primary: #6c63ff;
+      --primary-dark: #574fd6;
+      --accent: #ff6584;
+      --bg: #0f0f1a;
+      --surface: #1a1a2e;
+      --surface2: #16213e;
+      --text: #e8e8f0;
+      --text-muted: #9898b0;
+      --border: #2a2a4a;
+      --success: #4ade80;
+      --error: #f87171;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding-bottom: 2rem;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      padding: 2rem 1.5rem 1.5rem;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    .header .emoji { font-size: 3rem; display: block; margin-bottom: 0.5rem; }
+    .header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px; }
+    .header .event-name { color: var(--primary); font-size: 1.1rem; font-weight: 600; margin-top: 0.25rem; }
+    .header .host { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem; }
+    .header .desc { font-size: 0.9rem; color: var(--text-muted); margin-top: 0.75rem; max-width: 400px; margin-left: auto; margin-right: auto; }
+
+    /* ── MAIN ── */
+    main { max-width: 480px; margin: 0 auto; padding: 1.5rem 1.25rem; }
+
+    .uploader-name-wrap { margin-bottom: 1.5rem; }
+    label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.4rem; font-weight: 500; }
+    input[type="text"] {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.8rem 1rem;
+      color: var(--text);
+      font-size: 1rem;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus { outline: none; border-color: var(--primary); }
+
+    /* ── DROP ZONE ── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--surface);
+      position: relative;
+      margin-bottom: 1.5rem;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--primary);
+      background: rgba(108,99,255,0.08);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .drop-zone .dz-icon { font-size: 3rem; display: block; margin-bottom: 0.75rem; }
+    .drop-zone h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .drop-zone p { font-size: 0.85rem; color: var(--text-muted); }
+    .drop-zone .btn-pick {
+      display: inline-block;
+      margin-top: 1rem;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 0.6rem 1.5rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      pointer-events: none;
+    }
+
+    /* ── PREVIEW GRID ── */
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .preview-item {
+      position: relative;
+      aspect-ratio: 1;
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .preview-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .preview-item .remove-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 22px;
+      height: 22px;
+      background: rgba(0,0,0,0.7);
+      border: none;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 0.75rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .preview-item .status-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      background: rgba(0,0,0,0.5);
+    }
+    .preview-item.uploading .status-overlay { display: flex; }
+    .preview-item.done .status-overlay { background: rgba(74,222,128,0.5); }
+    .preview-item.error .status-overlay { background: rgba(248,113,113,0.5); }
+
+    /* ── PROGRESS ── */
+    .progress-bar-wrap {
+      background: var(--surface);
+      border-radius: 999px;
+      height: 6px;
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+      display: none;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      border-radius: 999px;
+      transition: width 0.3s;
+      width: 0%;
+    }
+
+    /* ── SUBMIT ── */
+    .btn-upload {
+      width: 100%;
+      padding: 1rem;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .btn-upload:hover:not(:disabled) { background: var(--primary-dark); transform: translateY(-2px); }
+    .btn-upload:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* ── SUCCESS SCREEN ── */
+    #success-screen {
+      display: none;
+      text-align: center;
+      padding: 3rem 1.5rem;
+    }
+    #success-screen .big-emoji { font-size: 4rem; display: block; margin-bottom: 1rem; }
+    #success-screen h2 { font-size: 1.5rem; font-weight: 800; margin-bottom: 0.5rem; }
+    #success-screen p { color: var(--text-muted); margin-bottom: 2rem; }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.8rem 1.8rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      margin: 0.4rem;
+      transition: border-color 0.2s;
+    }
+    .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* ── TOAST ── */
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      border: 1px solid var(--error);
+      color: var(--error);
+      padding: 0.7rem 1.4rem;
+      border-radius: 999px;
+      font-size: 0.88rem;
+      font-weight: 500;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.3s;
+      white-space: nowrap;
+    }
+    .toast.show { opacity: 1; }
+    .toast.ok { border-color: var(--success); color: var(--success); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="emoji">📸</span>
+    <h1>Share Your Photos</h1>
+    <div class="event-name" id="hdr-event-name">Loading event...</div>
+    <div class="host" id="hdr-host"></div>
+    <div class="desc" id="hdr-desc"></div>
+  </div>
+
+  <main>
+    <div id="upload-screen">
+      <div class="uploader-name-wrap">
+        <label for="uploader-name">Your name (optional)</label>
+        <input type="text" id="uploader-name" placeholder="e.g. John Smith" autocomplete="name" />
+      </div>
+
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" accept="image/*" multiple capture="environment" />
+        <span class="dz-icon">🖼️</span>
+        <h3>Tap to pick photos</h3>
+        <p>Or drag and drop images here</p>
+        <p style="margin-top:0.3rem;">JPG, PNG, WEBP, GIF • Max 20MB each</p>
+        <span class="btn-pick">📂 Choose Photos</span>
+      </div>
+
+      <div class="preview-grid" id="preview-grid"></div>
+
+      <div class="progress-bar-wrap" id="progress-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+
+      <button class="btn-upload" id="upload-btn" disabled onclick="uploadPhotos()">
+        📤 Upload Photos
+      </button>
+    </div>
+
+    <div id="success-screen">
+      <span class="big-emoji">🎉</span>
+      <h2>Photos Uploaded!</h2>
+      <p id="success-msg">Your photos have been shared with the event.</p>
+      <div>
+        <a id="gallery-link" href="#" class="btn-secondary" target="_blank">🖼️ View Gallery</a>
+        <button class="btn-secondary" onclick="resetUploader()">📸 Add More Photos</button>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const eventId = location.pathname.split('/')[2];
+    let selectedFiles = [];
+
+    // Load event info
+    fetch(`/api/events/${eventId}`)
+      .then(r => r.json())
+      .then(e => {
+        document.getElementById('hdr-event-name').textContent = e.name;
+        document.getElementById('hdr-host').textContent = e.hostName ? `Hosted by ${e.hostName}` : '';
+        document.getElementById('hdr-desc').textContent = e.description || '';
+        document.title = `Upload to ${e.name} – EventSnap`;
+      })
+      .catch(() => {
+        document.getElementById('hdr-event-name').textContent = 'Event not found';
+      });
+
+    // Drop zone
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      addFiles([...e.dataTransfer.files]);
+    });
+    fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
+
+    function addFiles(files) {
+      const imgFiles = files.filter(f => f.type.startsWith('image/'));
+      if (!imgFiles.length) { showToast('Please select image files only'); return; }
+      selectedFiles = [...selectedFiles, ...imgFiles];
+      renderPreviews();
+      document.getElementById('upload-btn').disabled = false;
+    }
+
+    function renderPreviews() {
+      const grid = document.getElementById('preview-grid');
+      grid.innerHTML = selectedFiles.map((f, i) => `
+        <div class="preview-item" id="prev-${i}">
+          <img src="${URL.createObjectURL(f)}" alt="" />
+          <button class="remove-btn" onclick="removeFile(${i})">✕</button>
+          <div class="status-overlay" style="display:none"></div>
+        </div>
+      `).join('');
+    }
+
+    function removeFile(i) {
+      selectedFiles.splice(i, 1);
+      renderPreviews();
+      document.getElementById('upload-btn').disabled = !selectedFiles.length;
+    }
+
+    async function uploadPhotos() {
+      if (!selectedFiles.length) return;
+      const btn = document.getElementById('upload-btn');
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Uploading...';
+
+      const progressWrap = document.getElementById('progress-wrap');
+      const progressBar = document.getElementById('progress-bar');
+      progressWrap.style.display = 'block';
+
+      const form = new FormData();
+      form.append('uploaderName', document.getElementById('uploader-name').value || 'Guest');
+      selectedFiles.forEach(f => form.append('photos', f));
+
+      try {
+        // Simulate progress
+        let prog = 0;
+        const progInterval = setInterval(() => {
+          prog = Math.min(prog + Math.random() * 15, 85);
+          progressBar.style.width = prog + '%';
+        }, 200);
+
+        // Mark items as uploading
+        selectedFiles.forEach((_, i) => {
+          const el = document.getElementById(`prev-${i}`);
+          if (el) {
+            el.classList.add('uploading');
+            el.querySelector('.status-overlay').style.display = 'flex';
+            el.querySelector('.status-overlay').textContent = '⏳';
+          }
+        });
+
+        const res = await fetch(`/api/events/${eventId}/upload`, { method: 'POST', body: form });
+        clearInterval(progInterval);
+        progressBar.style.width = '100%';
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Upload failed');
+        }
+
+        const data = await res.json();
+
+        // Mark done
+        selectedFiles.forEach((_, i) => {
+          const el = document.getElementById(`prev-${i}`);
+          if (el) {
+            el.classList.remove('uploading');
+            el.classList.add('done');
+            el.querySelector('.status-overlay').style.display = 'flex';
+            el.querySelector('.status-overlay').textContent = '✅';
+          }
+        });
+
+        setTimeout(() => {
+          document.getElementById('upload-screen').style.display = 'none';
+          document.getElementById('success-screen').style.display = 'block';
+          document.getElementById('success-msg').textContent =
+            `${data.uploaded.length} photo${data.uploaded.length !== 1 ? 's' : ''} shared! The event now has ${data.totalPhotos} photos total.`;
+          document.getElementById('gallery-link').href = `/gallery/${eventId}`;
+        }, 800);
+
+      } catch (err) {
+        showToast('❌ ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = '📤 Upload Photos';
+      }
+    }
+
+    function resetUploader() {
+      selectedFiles = [];
+      document.getElementById('preview-grid').innerHTML = '';
+      document.getElementById('progress-wrap').style.display = 'none';
+      document.getElementById('progress-bar').style.width = '0%';
+      document.getElementById('upload-btn').disabled = true;
+      document.getElementById('upload-btn').innerHTML = '📤 Upload Photos';
+      document.getElementById('upload-screen').style.display = 'block';
+      document.getElementById('success-screen').style.display = 'none';
+    }
+
+    function showToast(msg, type = 'error') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast show' + (type === 'ok' ? ' ok' : '');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gallery – EventSnap</title>
+  <style>
+    :root {
+      --primary: #6c63ff;
+      --primary-dark: #574fd6;
+      --accent: #ff6584;
+      --bg: #0f0f1a;
+      --surface: #1a1a2e;
+      --surface2: #16213e;
+      --text: #e8e8f0;
+      --text-muted: #9898b0;
+      --border: #2a2a4a;
+      --success: #4ade80;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── NAV ── */
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .nav-logo { font-size: 1.5rem; }
+    .nav-brand { font-size: 1.1rem; font-weight: 700; color: var(--primary); }
+    .nav-actions { margin-left: auto; display: flex; gap: 0.75rem; align-items: center; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.55rem 1.1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+    .btn-danger { background: transparent; color: #f87171; border: 1px solid #f87171; }
+    .btn-danger:hover { background: #f87171; color: #fff; }
+
+    /* ── HEADER ── */
+    .event-header {
+      background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+      padding: 2.5rem 2rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .event-header .meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 1px; }
+    .event-header h1 { font-size: clamp(1.5rem, 4vw, 2.5rem); font-weight: 800; letter-spacing: -0.5px; margin-bottom: 0.4rem; }
+    .event-header .sub { color: var(--text-muted); display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center; }
+    .chip { background: rgba(108,99,255,0.15); color: var(--primary); border-radius: 999px; padding: 3px 12px; font-size: 0.8rem; font-weight: 600; }
+
+    /* ── TOOLBAR ── */
+    .toolbar {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .search-box {
+      flex: 1;
+      min-width: 180px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    .search-box:focus { outline: none; border-color: var(--primary); }
+
+    /* ── QR PANEL ── */
+    .qr-panel {
+      max-width: 1200px;
+      margin: 0 auto 0;
+      padding: 0 1.5rem 1rem;
+    }
+    .qr-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .qr-box img { width: 100px; height: 100px; border-radius: 8px; border: 3px solid #fff; }
+    .qr-box-text h3 { font-weight: 700; margin-bottom: 0.3rem; }
+    .qr-box-text p { font-size: 0.85rem; color: var(--text-muted); }
+    .qr-url { font-size: 0.8rem; color: var(--primary); margin-top: 0.3rem; word-break: break-all; }
+
+    /* ── GALLERY ── */
+    .gallery {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1rem 1.5rem 2rem;
+    }
+    .masonry {
+      columns: 4 220px;
+      column-gap: 0.75rem;
+    }
+    .photo-item {
+      break-inside: avoid;
+      margin-bottom: 0.75rem;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+      background: var(--surface);
+      cursor: pointer;
+    }
+    .photo-item img {
+      width: 100%;
+      display: block;
+      transition: transform 0.3s;
+    }
+    .photo-item:hover img { transform: scale(1.03); }
+    .photo-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 50%);
+      opacity: 0;
+      transition: opacity 0.2s;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 0.75rem;
+    }
+    .photo-item:hover .photo-overlay { opacity: 1; }
+    .photo-overlay .uploader { font-size: 0.75rem; font-weight: 600; color: #fff; }
+    .photo-overlay .pdate { font-size: 0.7rem; color: rgba(255,255,255,0.6); }
+    .photo-overlay .del-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      width: 28px;
+      height: 28px;
+      background: rgba(248,113,113,0.85);
+      border: none;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 0.75rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── LIGHTBOX ── */
+    .lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img {
+      max-width: 90vw;
+      max-height: 85vh;
+      object-fit: contain;
+      border-radius: 8px;
+      box-shadow: 0 8px 48px rgba(0,0,0,0.6);
+    }
+    .lightbox-controls {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .lb-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .lb-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .lb-close {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      font-size: 1.5rem;
+      background: none;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      padding: 0.5rem;
+      line-height: 1;
+    }
+    .lb-info { color: var(--text-muted); font-size: 0.85rem; text-align: center; }
+
+    /* ── EMPTY ── */
+    .empty {
+      text-align: center;
+      padding: 5rem 2rem;
+      color: var(--text-muted);
+    }
+    .empty .icon { font-size: 4rem; display: block; margin-bottom: 1rem; }
+
+    /* ── SPINNER ── */
+    .spinner {
+      text-align: center;
+      padding: 4rem;
+      font-size: 2rem;
+    }
+
+    /* ── TOAST ── */
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      border: 1px solid var(--success);
+      color: var(--success);
+      padding: 0.7rem 1.4rem;
+      border-radius: 999px;
+      font-size: 0.88rem;
+      font-weight: 500;
+      z-index: 2000;
+      opacity: 0;
+      transition: opacity 0.3s;
+      white-space: nowrap;
+    }
+    .toast.show { opacity: 1; }
+
+    @media (max-width: 600px) {
+      .masonry { columns: 2 150px; }
+      .event-header { padding: 1.5rem 1rem; }
+      .toolbar { padding: 0.75rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="nav-logo">📸</span>
+    <span class="nav-brand">EventSnap</span>
+    <div class="nav-actions">
+      <a href="/" class="btn btn-outline">🏠 Admin</a>
+      <button class="btn btn-primary" id="upload-btn-nav">📤 Add Photos</button>
+    </div>
+  </nav>
+
+  <div class="event-header">
+    <div class="meta">📍 Event Gallery</div>
+    <h1 id="event-title">Loading...</h1>
+    <div class="sub">
+      <span id="event-host"></span>
+      <span class="chip" id="photo-count">0 photos</span>
+      <span id="event-date" style="font-size:0.85rem;"></span>
+    </div>
+    <p id="event-desc" style="color:var(--text-muted);margin-top:0.75rem;font-size:0.9rem;"></p>
+  </div>
+
+  <div class="qr-panel" id="qr-panel" style="display:none">
+    <div class="qr-box">
+      <img id="qr-img" src="" alt="QR Code" />
+      <div class="qr-box-text">
+        <h3>📲 Share with Guests</h3>
+        <p>Scan this QR code to upload photos to this event</p>
+        <div class="qr-url" id="qr-url"></div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn btn-outline" onclick="downloadQR()">⬇️ QR Code</button>
+        <button class="btn btn-outline" onclick="copyLink()">🔗 Copy Link</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input class="search-box" type="text" id="search" placeholder="🔍 Search by uploader name..." oninput="filterPhotos()" />
+    <button class="btn btn-outline" onclick="toggleQR()">📲 QR Code</button>
+    <button class="btn btn-outline" onclick="loadPhotos()">↻ Refresh</button>
+  </div>
+
+  <div class="gallery">
+    <div id="gallery-content" class="spinner">⏳ Loading photos...</div>
+  </div>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+    <button class="lb-close" onclick="closeLightbox()">✕</button>
+    <img id="lb-img" src="" alt="" />
+    <div class="lightbox-controls">
+      <button class="lb-btn" onclick="lbPrev()">← Prev</button>
+      <span class="lb-info" id="lb-info"></span>
+      <button class="lb-btn" onclick="lbNext()">Next →</button>
+      <a id="lb-download" href="#" download class="lb-btn">⬇️ Download</a>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const eventId = location.pathname.split('/')[2];
+    let allPhotos = [];
+    let filteredPhotos = [];
+    let lbIndex = 0;
+    let qrVisible = false;
+    let eventData = null;
+
+    document.getElementById('upload-btn-nav').onclick = () => {
+      window.open(`/upload/${eventId}`, '_blank');
+    };
+
+    async function init() {
+      const res = await fetch(`/api/events/${eventId}`);
+      if (!res.ok) {
+        document.getElementById('event-title').textContent = 'Event not found';
+        document.getElementById('gallery-content').innerHTML =
+          '<div class="empty"><span class="icon">🔍</span><p>This event does not exist.</p></div>';
+        return;
+      }
+      eventData = await res.json();
+      document.title = `${eventData.name} – EventSnap Gallery`;
+      document.getElementById('event-title').textContent = eventData.name;
+      document.getElementById('event-host').textContent = eventData.hostName ? `👤 ${eventData.hostName}` : '';
+      document.getElementById('event-date').textContent = new Date(eventData.createdAt).toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+      document.getElementById('event-desc').textContent = eventData.description || '';
+
+      const qrImg = document.getElementById('qr-img');
+      qrImg.src = `/api/events/${eventId}/qr`;
+      document.getElementById('qr-url').textContent = `${location.origin}/upload/${eventId}`;
+
+      loadPhotos();
+    }
+
+    async function loadPhotos() {
+      const res = await fetch(`/api/events/${eventId}/photos`);
+      allPhotos = await res.json();
+      filteredPhotos = [...allPhotos];
+      document.getElementById('photo-count').textContent = `${allPhotos.length} photo${allPhotos.length !== 1 ? 's' : ''}`;
+      renderGallery();
+    }
+
+    function filterPhotos() {
+      const q = document.getElementById('search').value.toLowerCase();
+      filteredPhotos = q
+        ? allPhotos.filter(p => p.uploaderName.toLowerCase().includes(q))
+        : [...allPhotos];
+      renderGallery();
+    }
+
+    function renderGallery() {
+      const container = document.getElementById('gallery-content');
+      if (!filteredPhotos.length) {
+        container.innerHTML = allPhotos.length
+          ? '<div class="empty"><span class="icon">🔍</span><p>No photos match your search.</p></div>'
+          : '<div class="empty"><span class="icon">📭</span><p>No photos yet. Share the QR code with guests!</p></div>';
+        return;
+      }
+      container.className = 'masonry';
+      container.innerHTML = filteredPhotos.map((photo, i) => `
+        <div class="photo-item" id="photo-${photo.id}">
+          <img src="${photo.url}" alt="Photo by ${photo.uploaderName}" loading="lazy" onclick="openLightbox(${i})" />
+          <div class="photo-overlay">
+            <span class="uploader">📸 ${photo.uploaderName}</span>
+            <span class="pdate">${new Date(photo.uploadedAt).toLocaleString()}</span>
+            <button class="del-btn" onclick="deletePhoto('${photo.id}', event)" title="Delete">✕</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function deletePhoto(photoId, e) {
+      e.stopPropagation();
+      if (!confirm('Delete this photo?')) return;
+      const res = await fetch(`/api/events/${eventId}/photos/${photoId}`, { method: 'DELETE' });
+      if (res.ok) {
+        allPhotos = allPhotos.filter(p => p.id !== photoId);
+        filteredPhotos = filteredPhotos.filter(p => p.id !== photoId);
+        document.getElementById('photo-count').textContent = `${allPhotos.length} photo${allPhotos.length !== 1 ? 's' : ''}`;
+        renderGallery();
+        showToast('Photo deleted');
+      }
+    }
+
+    function openLightbox(index) {
+      lbIndex = index;
+      updateLightbox();
+      document.getElementById('lightbox').classList.add('open');
+      document.addEventListener('keydown', lbKeyHandler);
+    }
+
+    function updateLightbox() {
+      const photo = filteredPhotos[lbIndex];
+      document.getElementById('lb-img').src = photo.url;
+      document.getElementById('lb-info').textContent = `${lbIndex + 1} / ${filteredPhotos.length} · ${photo.uploaderName}`;
+      document.getElementById('lb-download').href = photo.url;
+      document.getElementById('lb-download').download = photo.filename;
+    }
+
+    function closeLightbox(e) {
+      if (e && e.target !== document.getElementById('lightbox') && e.target.className !== 'lb-close') return;
+      document.getElementById('lightbox').classList.remove('open');
+      document.removeEventListener('keydown', lbKeyHandler);
+    }
+
+    function lbPrev() { lbIndex = (lbIndex - 1 + filteredPhotos.length) % filteredPhotos.length; updateLightbox(); }
+    function lbNext() { lbIndex = (lbIndex + 1) % filteredPhotos.length; updateLightbox(); }
+    function lbKeyHandler(e) {
+      if (e.key === 'ArrowLeft') lbPrev();
+      if (e.key === 'ArrowRight') lbNext();
+      if (e.key === 'Escape') document.getElementById('lightbox').classList.remove('open');
+    }
+
+    function toggleQR() {
+      const panel = document.getElementById('qr-panel');
+      qrVisible = !qrVisible;
+      panel.style.display = qrVisible ? 'block' : 'none';
+    }
+
+    function downloadQR() {
+      const a = document.createElement('a');
+      a.href = `/api/events/${eventId}/qr`;
+      a.download = `${eventId}-qr.png`;
+      a.click();
+    }
+
+    function copyLink() {
+      navigator.clipboard.writeText(`${location.origin}/upload/${eventId}`)
+        .then(() => showToast('✅ Link copied!'));
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2800);
+    }
+
+    // Auto-refresh every 15 seconds
+    setInterval(loadPhotos, 15000);
+    init();
+  </script>
+</body>
+</html>
+

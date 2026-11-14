@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: event-photos
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 18.18.0
+      # Cloudinary credentials (free 25GB photo storage)
+      # Get these from https://cloudinary.com/console
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      # MongoDB Atlas connection string (free 512MB database)
+      # Get this from https://cloud.mongodb.com
+      - key: MONGODB_URI
+        sync: false
