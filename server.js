@@ -190,12 +190,19 @@ async function uploadToFirebaseStorage(buffer, originalname, eventId, mimetype) 
 }
 
 // ─── Local Fallback Setup ───────────────────────────────────────────────────
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-const EVENTS_FILE = path.join(__dirname, 'data', 'events.json');
+// On Vercel / serverless, local filesystem outside /tmp is read-only
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const BASE_STORAGE_DIR = isServerless ? '/tmp' : __dirname;
+const UPLOADS_DIR = path.join(BASE_STORAGE_DIR, 'uploads');
+const EVENTS_FILE = path.join(BASE_STORAGE_DIR, 'data', 'events.json');
 
-[UPLOADS_DIR, path.join(__dirname, 'data')].forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
+try {
+  [UPLOADS_DIR, path.join(BASE_STORAGE_DIR, 'data')].forEach(dir => {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  });
+} catch (e) {
+  console.warn('Local directory creation skipped:', e.message);
+}
 
 function loadLocalEvents() {
   if (!fs.existsSync(EVENTS_FILE)) return {};
