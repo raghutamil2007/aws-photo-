@@ -354,11 +354,23 @@
     }
 
     async function loadPhotos() {
-      const res = await fetch(`/api/events/${eventId}/photos`);
+      let res;
+      try { res = await fetch(`/api/events/${eventId}/photos`, { cache: 'no-store' }); }
+      catch (e) { return showLoadError('Network error. Check your connection.'); }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return showLoadError(err.error || `Server error (${res.status})`);
+      }
       allPhotos = await res.json();
       filteredPhotos = [...allPhotos];
       document.getElementById('photo-count').textContent = `${allPhotos.length} photo${allPhotos.length !== 1 ? 's' : ''}`;
       renderGallery();
+    }
+
+    function showLoadError(msg) {
+      document.getElementById('gallery-content').className = '';
+      document.getElementById('gallery-content').innerHTML =
+        `<div class="empty"><span class="icon">⚠️</span><p>Could not load photos: ${msg}</p></div>`;
     }
 
     function filterPhotos() {
