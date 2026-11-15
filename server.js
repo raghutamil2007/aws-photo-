@@ -302,6 +302,30 @@ async function getPhotosForEvent(eventId) {
   return event ? (event.photos || []) : [];
 }
 
+// Base64 photos must NOT be sent inside JSON lists (Vercel caps responses at ~4.5MB).
+// Expose them via a per-photo image URL instead; browsers then load/cache each one separately.
+function toPublicPhoto(eventId, p) {
+  if (p && typeof p.url === 'string' && p.url.startsWith('data:')) {
+    return { ...p, url: `/api/events/${eventId}/photos/${p.id}/image` };
+  }
+  return p;
+}
+
+async function getPhotoById(eventId, photoId) {
+  if (hasFirebase && firestoreDb) {
+    try {
+      const doc = await firestoreDb.collection('events').doc(eventId)
+        .collection('photos').doc(photoId).get();
+      if (doc.exists) return doc.data();
+    } catch (e) {
+      console.error('Firestore getPhotoById error:', e.message);
+      failIfServerless(e);
+    }
+  }
+  const event = loadLocalEvents()[eventId];
+  return event && event.photos ? event.photos.find(p => p.id === photoId) || null : null;
+}
+
 async function savePhotoForEvent(eventId, photo) {
   if (hasFirebase && firestoreDb) {
     try {
@@ -497,10 +521,8 @@ app.get('/api/events/:eventId', async (req, res, next) => {
   try {
     const event = await getEventById(req.params.eventId);
     if (!event) return res.status(404).json({ error: 'Event not found' });
-    const photos = await getPhotosForEvent(req.params.eventId);
-    event.photos = photos;
-    event.photoCount = photos.length;
-    res.json(event);
+    const { photos, ...info } = event; // never send photo data here
+    res.json(info);
   } catch (err) {
     next(err);
   }
@@ -595,7 +617,7 @@ app.post('/api/events/:eventId/upload', upload.array('photos', 20), async (req, 
     }
 
     const allPhotos = await getPhotosForEvent(event.id);
-    res.json({ success: true, uploaded, totalPhotos: allPhotos.length });
+    res.json({ success: true, uploaded: uploaded.map(p => toPublicPhoto(event.id, p)), totalPhotos: allPhotos.length });
   } catch (err) {
     next(err);
   }
@@ -605,7 +627,23 @@ app.post('/api/events/:eventId/upload', upload.array('photos', 20), async (req, 
 app.get('/api/events/:eventId/photos', async (req, res, next) => {
   try {
     const photos = await getPhotosForEvent(req.params.eventId);
-    res.json(photos);
+    res.set('Cache-Control', 'no-store');
+    res.json(photos.map(p => toPublicPhoto(req.params.eventId, p)));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── API: Serve a single photo (decodes base64 stored in Firestore) ──────────
+app.get('/api/events/:eventId/photos/:photoId/image', async (req, res, next) => {
+  try {
+    const photo = await getPhotoById(req.params.eventId, req.params.photoId);
+    if (!photo || !photo.url) return res.status(404).send('Photo not found');
+    const m = /^data:([^;]+);base64,(.+)$/s.exec(photo.url);
+    if (!m) return res.redirect(photo.url);
+    res.set('Content-Type', m[1]);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(Buffer.from(m[2], 'base64'));
   } catch (err) {
     next(err);
   }
