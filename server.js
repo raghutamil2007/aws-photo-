@@ -193,6 +193,12 @@ async function uploadToFirebaseStorage(buffer, originalname, eventId, mimetype) 
 // On Vercel / serverless, local filesystem outside /tmp is read-only
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 const BASE_STORAGE_DIR = isServerless ? '/tmp' : __dirname;
+
+// On serverless (Vercel), /tmp is per-instance and wiped on cold start, so a silent
+// fallback to local files causes random "Event not found". Fail loudly instead.
+function failIfServerless(e) {
+  if (isServerless) throw new Error('Firestore failed: ' + e.message);
+}
 const UPLOADS_DIR = path.join(BASE_STORAGE_DIR, 'uploads');
 const EVENTS_FILE = path.join(BASE_STORAGE_DIR, 'data', 'events.json');
 
@@ -231,6 +237,7 @@ async function getAllEvents() {
       });
     } catch (e) {
       console.error('Firestore getAllEvents error, using local fallback:', e.message);
+      failIfServerless(e);
     }
   }
   const events = loadLocalEvents();
@@ -252,6 +259,7 @@ async function getEventById(eventId) {
       return doc.exists ? doc.data() : null;
     } catch (e) {
       console.error('Firestore getEventById error, using local fallback:', e.message);
+      failIfServerless(e);
     }
   }
   const events = loadLocalEvents();
@@ -265,6 +273,7 @@ async function saveEvent(event) {
       return;
     } catch (e) {
       console.error('Firestore saveEvent error, using local fallback:', e.message);
+      failIfServerless(e);
     }
   }
   const events = loadLocalEvents();
@@ -285,7 +294,8 @@ async function getPhotosForEvent(eventId) {
         return snap.docs.map(d => d.data());
       }
     } catch (e) {
-      // Fall through to event doc photos
+      console.error('Firestore getPhotosForEvent error:', e.message);
+      failIfServerless(e);
     }
   }
   const event = await getEventById(eventId);
@@ -310,6 +320,7 @@ async function savePhotoForEvent(eventId, photo) {
       return;
     } catch (e) {
       console.error('Firestore save photo error:', e.message);
+      failIfServerless(e);
     }
   }
   // Local fallback
@@ -338,6 +349,7 @@ async function deletePhotoFromEvent(eventId, photoId) {
       return;
     } catch (e) {
       console.error('Firestore delete photo error:', e.message);
+      failIfServerless(e);
     }
   }
   // Local fallback
@@ -364,6 +376,7 @@ async function deleteEventDoc(eventId) {
       return;
     } catch (e) {
       console.error('Firestore deleteEvent error, using local fallback:', e.message);
+      failIfServerless(e);
     }
   }
   const events = loadLocalEvents();
